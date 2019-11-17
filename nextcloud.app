@@ -57,8 +57,8 @@ fi
 echo -e "GET http://google.com HTTP/1.0\n\n" | nc google.com 80 > /dev/null 2>&1
 if [ $? -ne 0 ]; then
 	# Offline
-	#/ebrmain/bin/dialog 5 "" "Connection error. Please check your internet connection." "Ok"
-	/ebrmain/bin/dialog 5 "" "Verbindungsfehler. Bitte Internetverbindung überprüfen." "Ok"
+	#/ebrmain/bin/dialog 5 "" "Connection error. Please check your internet connection." @OK
+	/ebrmain/bin/dialog 5 "" "Verbindungsfehler. Bitte Internetverbindung überprüfen." @OK
 	exit 1
 fi
 
@@ -77,9 +77,15 @@ for TAG in $REMOTE_FILES_TAGS; do
 		else
 			REMOTE_FILES_LIST=$REMOTE_FILES_LIST$'\n'$FILE
 		fi
-		REMOTE_TIMESTAMP=$(echo $TAG | sed -n 's/^.*<d:getlastmodified>\(.*\)<\/d:getlastmodified>.*$/\1/p' | sed 's/ *[A-Z]*$//')
-		LOCAL_TIMESTAMP=$(date -ur "$LOCAL_DIR/$FILE" +'%a, %d %b %Y %H:%M:%S')
-		if [ "$REMOTE_TIMESTAMP" != "$LOCAL_TIMESTAMP" ]; then
+		REMOTE_DATE=$(echo $TAG | sed -n 's/^.*<d:getlastmodified>\(.*\)<\/d:getlastmodified>.*$/\1/p')
+		REMOTE_TIMESTAMP=$(date -ud "$REMOTE_DATE" -D "%a, %d %b %Y %H:%M:%S %Z" +'%s')
+		LOCAL_TIMESTAMP=0
+		if [ -f "$LOCAL_DIR/$FILE" ]; then
+			LOCAL_TIMESTAMP=$(date -ur "$LOCAL_DIR/$FILE" +'%s')
+		fi
+		REMOTE_NEWER_SEC=$(($REMOTE_TIMESTAMP - $LOCAL_TIMESTAMP))
+		# Check for newer by more than 1 s because there seem to be some rounding errors in a:getlastmodified
+		if [ "$REMOTE_NEWER_SEC" -gt 1 ]; then
 			if [ -z "$UPDATED_FILES_LIST" ]; then
 				UPDATED_FILES_LIST=$FILE
 			else
@@ -94,6 +100,10 @@ if [ -n "$UPDATED_FILES_LIST" ]; then
 	/ebrmain/bin/dialog 2 "" "$(echo "$UPDATED_FILES_LIST" | wc -l) Datei(en) wurden geändert:"$'\n'"$(echo "$UPDATED_FILES_LIST" | sed -e "s/^/$(printf '\xe2\x80\xa2 ')/")"$'\n'"Diese aktualisieren?" @Yes @Cancel
 	if [ $? -eq 1 ]; then
 		for FILE in $UPDATED_FILES_LIST; do
+			FILE_DIR=$(dirname "$LOCAL_DIR/$FILE")
+			if [ ! -d "$FILE_DIR" ]; then
+				mkdir -p "$FILE_DIR"
+			fi
 			RESPONSE=$(wget -O "$LOCAL_DIR/$FILE" --user="$USER" --password="$PASSWORD" --server-response "$REMOTE_DIR_URL/$FILE" 2>&1)
 			ERROR=$?
 			if [ $ERROR -eq 0 -o $ERROR -eq 8 ]; then
@@ -105,15 +115,15 @@ if [ -n "$UPDATED_FILES_LIST" ]; then
 						UPDATED_FILES_LIST=$UPDATED_FILES_LIST$'\n'$FILE
 					fi
 				else
-					#/ebrmain/bin/dialog 4 "" "Failed to download $FILE (HTTP $HTTP_CODE)!" "Ok" @Cancel
-					/ebrmain/bin/dialog 4 "" "Konnte $FILE nicht herunterladen (HTTP $HTTP_CODE)!" "Ok" @Cancel
+					#/ebrmain/bin/dialog 4 "" "Failed to download $FILE (HTTP $HTTP_CODE)!" @OK @Cancel
+					/ebrmain/bin/dialog 4 "" "Konnte $FILE nicht herunterladen (HTTP $HTTP_CODE)!" @OK @Cancel
 					if [ $? -eq 2 ]; then
 						break
 					fi
 				fi
 			else
-				#/ebrmain/bin/dialog 4 "" "Failed to download $FILE (Wget error $ERROR)!" "Ok" @Cancel
-				/ebrmain/bin/dialog 4 "" "Konnte $FILE nicht herunterladen (Wget Fehler $ERROR)!" "Ok" @Cancel
+				#/ebrmain/bin/dialog 4 "" "Failed to download $FILE (Wget error $ERROR)!" @OK @Cancel
+				/ebrmain/bin/dialog 4 "" "Konnte $FILE nicht herunterladen (Wget Fehler $ERROR)!" @OK @Cancel
 				if [ $? -eq 2 ]; then
 					break
 				fi
@@ -121,8 +131,8 @@ if [ -n "$UPDATED_FILES_LIST" ]; then
 		done
 	fi
 else
-	#/ebrmain/bin/dialog 1 "" "No updated files found." "Ok"
-	/ebrmain/bin/dialog 1 "" "Keine aktualisierten Dateien gefunden." "Ok"
+	#/ebrmain/bin/dialog 1 "" "No updated files found." @OK
+	/ebrmain/bin/dialog 1 "" "Keine aktualisierten Dateien gefunden." @OK
 fi
 
 # Delete local files that are not on the server if requested
